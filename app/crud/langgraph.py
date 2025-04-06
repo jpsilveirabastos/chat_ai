@@ -35,7 +35,7 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.graph.message import AnyMessage, add_messages
 
 from ..core.db import PgConnection
-from .supervisor import supervisor_agent
+from .supervisor import supervisor_agent, members
 from .agents import MSSQL_AGENT_SUFFIX_WITH_MEMORY, POLICY_AGENT_SUFFIX_WITH_MEMORY, MESSENGER_AGENT_SUFFIX_WITH_MEMORY, WHATSAPP_AGENT_SUFFIX_WITH_MEMORY
 from .tools import twilio_wpp_messages
 
@@ -47,51 +47,53 @@ class AgentState(TypedDict):
     # The 'next' field indicates where to route to next
     next: str
 
-
-db = PgConnection.connect()
-
-llm = ChatOpenAI(model='gpt-4o')
-
-toolkit = SQLDatabaseToolkit(db=db,llm=llm)
-
 def agent_node(state, agent, name):
     result = agent.invoke(state)
     return {"messages": [HumanMessage(content=result["messages"][-1].content, name=name)]}
 
-msg_agent = create_react_agent(llm, tools=[], state_modifier=MESSENGER_AGENT_SUFFIX_WITH_MEMORY)
-msg_node = functools.partial(agent_node, agent=msg_agent, name="Messenger_agent")
+class Graph:
 
-wpp_agent = create_react_agent(llm, tools=[twilio_wpp_messages], state_modifier=WHATSAPP_AGENT_SUFFIX_WITH_MEMORY)
-wpp_node = functools.partial(agent_node, agent=wpp_agent, name="Whatsapp_agent")
+    def __init__(self):
+        self.llm = ChatOpenAI(model='gpt-4o')
 
-sql_agent = create_react_agent(llm, tools=toolkit.get_tools(), state_modifier=MSSQL_AGENT_SUFFIX_WITH_MEMORY)
-sql_node = functools.partial(agent_node, agent=sql_agent, name="Sql_agent")
+    def graph(self):
+        """Create graph"""
 
-rag_agent = create_react_agent(llm, tools=[], state_modifier=POLICY_AGENT_SUFFIX_WITH_MEMORY)
-rag_node = functools.partial(agent_node, agent=rag_agent, name="Policy_agent")
+        db = PgConnection.connect()
+        toolkit = SQLDatabaseToolkit(db=db,llm=self.llm)
 
-workflow = StateGraph(AgentState)
-# workflow.add_node("model", call_model)
-workflow.add_node("Messenger_agent", msg_node)
-workflow.add_node("Whatsapp_agent", wpp_node)
-workflow.add_node("Policy_agent", rag_node)
-workflow.add_node("Sql_agent", sql_node)
-workflow.add_node("supervisor", supervisor_agent)
+        msg_agent = create_react_agent(self.llm, tools=[], state_modifier=MESSENGER_AGENT_SUFFIX_WITH_MEMORY)
+        msg_node = functools.partial(agent_node, agent=msg_agent, name="Messenger_agent")
 
-for member in members:
-    # We want our workers to ALWAYS "report back" to the supervisor when done
-    workflow.add_edge(member, "supervisor")
-# The supervisor populates the "next" field in the graph state
-# which routes to a node or finishes
-conditional_map = {k: k for k in members}
-conditional_map["FINISH"] = END
-workflow.add_conditional_edges("supervisor", lambda x: x["next"], conditional_map)
-# Finally, add entrypoint
-workflow.add_edge(START, "supervisor")
+        wpp_agent = create_react_agent(self.llm, tools=[twilio_wpp_messages], state_modifier=WHATSAPP_AGENT_SUFFIX_WITH_MEMORY)
+        wpp_node = functools.partial(agent_node, agent=wpp_agent, name="Whatsapp_agent")
 
-memory = MemorySaver()
-graph = workflow.compile(checkpointer=memory)
+        sql_agent = create_react_agent(self.llm, tools=toolkit.get_tools(), state_modifier=MSSQL_AGENT_SUFFIX_WITH_MEMORY)
+        sql_node = functools.partial(agent_node, agent=sql_agent, name="Sql_agent")
 
-session_id = uuid.uuid4()
-config = {"configurable": {'thread_id': session_id}, "recursion_limit": 10}
-_printed = set()
+        pol_agent = create_react_agent(self.llm, tools=[], state_modifier=POLICY_AGENT_SUFFIX_WITH_MEMORY)
+        pol_node = functools.partial(agent_node, agent=pol_agent, name="Policy_agent")
+
+        workflow = StateGraph(AgentState)
+
+        workflow.add_node("Messenger_agent", msg_node)
+        workflow.add_node("Whatsapp_agent", wpp_node)
+        workflow.add_node("Policy_agent", pol_node)
+        workflow.add_node("Sql_agent", sql_node)
+        workflow.add_node("supervisor", supervisor_agent)
+
+        for member in members:
+            # We want our workers to ALWAYS "report back" to the supervisor when done
+            workflow.add_edge(member, "supervisor")
+        # The supervisor populates the "next" field in the graph state
+        # which routes to a node or finishes
+        conditional_map = {k: k for k in members}
+        conditional_map["FINISH"] = END
+        workflow.add_conditional_edges("supervisor", lambda x: x["next"], conditional_map)
+        # Finally, add entrypoint
+        workflow.add_edge(START, "supervisor")
+
+        memory = MemorySaver()
+        graph = workflow.compile(checkpointer=memory)
+
+        return graph
