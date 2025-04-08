@@ -1,4 +1,4 @@
-from langchain.sql_database import SQLDatabase
+from langchain_community.utilities import SQLDatabase
 from .config import DBNAME_PG, HOST_PG, USER_PG, PASSWORD_PG
 
 class PgConnection:

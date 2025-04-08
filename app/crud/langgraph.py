@@ -16,14 +16,15 @@ from langgraph.graph import MessagesState, END
 from langgraph.types import Command
 from langchain_openai import ChatOpenAI
 
-from langchain.llms.openai import OpenAI
+# from langchain.llms.openai import OpenAI
 
-from langchain.agents import create_sql_agent
-from langchain.agents.agent_toolkits import SQLDatabaseToolkit
+# from langchain.agents import create_sql_agent
+# from langchain.agents.agent_toolkits import SQLDatabaseToolkit
+from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
 from langchain.agents import AgentExecutor
 
-from langchain.sql_database import SQLDatabase
-from langgraph.checkpoint.memory import MemorySaver
+# from langchain.sql_database import SQLDatabase
+# from langgraph.checkpoint.memory import MemorySaver
 
 import psycopg2
 
@@ -93,7 +94,7 @@ class Graph:
         # Finally, add entrypoint
         workflow.add_edge(START, "supervisor")
 
-        memory = MemorySaver()
-        graph = workflow.compile(checkpointer=memory)
+        # memory = MemorySaver()
+        
 
-        return graph
+        return workflow

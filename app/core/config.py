@@ -15,3 +15,4 @@ HOST_PG = getenv('HOST_PG')
 USER_PG = getenv('USER_PG')
 PASSWORD_PG = getenv('PASSWORD_PG')
 AUTH_KEY = getenv('AUTH_KEY')
+DB_URI = f'postgresql://{USER_PG}:{PASSWORD_PG}@{HOST_PG}:5432/{DBNAME_PG}'

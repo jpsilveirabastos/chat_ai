@@ -4,8 +4,10 @@ from fastapi import status, HTTPException, Header
 from typing import Optional, Any, Dict
 import uuid
 import json
+from langchain_core.messages import HumanMessage
+from langgraph.checkpoint.postgres import PostgresSaver
 
-from .core.config import AUTH_KEY
+from .core.config import AUTH_KEY, DB_URI
 from .crud.langgraph import Graph
 
 app = FastAPI()
@@ -23,12 +25,17 @@ class AuthToken:
 def call_graph(request: Dict[Any,Any]):
     """Receives a query as string and return the response"""
 
-    graph = Graph().graph()
-    session_id = 'abc' #uuid.uuid4()
+    query = request['query']
+    workflow = Graph().graph()
+    session_id = 'abcd' #uuid.uuid4()
     config = {"configurable": {'thread_id': session_id}, "recursion_limit": 10}
-    input_data = {"messages": request['query']}
-    resp = graph.invoke(input_data, config=config, stream_mode='values')
-    resp_filt = resp['messages'][-1].content
+
+    with PostgresSaver.from_conn_string(DB_URI) as checkpointer:
+        graph = workflow.compile(checkpointer=checkpointer)
+        input_data = {"messages": query} # request['query']}
+        # input_data = {"messages":[HumanMessage(content=request['query'])]}
+        resp = graph.invoke(input_data, config=config, stream_mode='values')
+        resp_filt = resp['messages'][-1].content
 
     return resp_filt
 
@@ -37,7 +44,7 @@ def call_graph(request: Dict[Any,Any]):
             description='Rota para verificação de status de disponibilidade da API',
             summary='Check de disponibilidade',
             status_code=status.HTTP_200_OK,
-            name="Health check",
+            name="Health check"
             )
 def health():
     return JSONResponse(content='Ok', status_code=status.HTTP_200_OK)
