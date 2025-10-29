@@ -1,53 +1,34 @@
-from langchain_core.messages import BaseMessage, HumanMessage
+# from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-import functools
-import operator
-from typing import Sequence, TypedDict, Annotated
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from typing import Union, Literal
 from pydantic import BaseModel
 
 from typing import Literal
-from typing_extensions import TypedDict
 
-from langchain_anthropic import ChatAnthropic
-from langgraph.graph import MessagesState, END
-from langgraph.types import Command
 from langchain_openai import ChatOpenAI
 
-from langgraph.graph.message import AnyMessage, add_messages
+members = ["Messenger_agent", "Data_agent"]
 
-members = ["Messenger_agent","Whatsapp_agent","Sql_agent","Policy_agent"]
-
-system_prompt = """Você é um supervisor da empresa Nagro e sua tarefa é gerenciar uma conversa entre os seguintes trabalhadores: {members}. Dada a seguinte solicitação do usuário, responda com o trabalhador para agir em seguida. 
-Cada trabalhador executará uma tarefa e responderá com seus resultados e status. Se a conversa terminar, responda com 'FINISH'.
+system_prompt = """Você é um supervisor da empresa Nagro e sua tarefa é decidir quem vai ser o próximo agente a agir.
+Existem os agentes: 'Messenger_agent' e 'Data_agent'.
+O 'Messenger_agent' tem a função de comunicar com o usuário e ler os documentos que este enviar, enquanto o 'Data_agent' tem a função de interpretar os dados e salvá-los no banco de dados.
+O 'Data_agent' vai ser chamado APENAS quando há documentos enviados pelo usuário, caso contrário não é necessário chamar ele.
+Se o 'Data_agent' não tiver a necessidade de ser chamado, use somente o 'Messenger_agent' para responder o usuário.
+Sempre que o usuário enviar arquivos de documentos, o 'Messenger_agent' lê o documento e repassa as informações para VOCê, e depois você repassa para o 'Data_agent'. Depois o 'Messenger_agent' responde o usuário.
+Assim que gerar alguma resposta para o usuário, finalize com 'FINISH' para enviar a resposta ao usuário e assim começar a próxima interação.
 
 - **Messenger_agent**: Use este trabalhador para tarefas que envolvam:
+    - Interagir com o usuário, passando pelas perguntas necessárias conforme o histórico da conversa.
     - Responder a perguntas simples, como: saudações e informações básicas.
-- **Whatsapp_agent**: Use este trabalhador para tarefas que envolvam:
-    - Mandar mensagem para os clientes no Whatsapp de forma natural.
-    - SEMPRE usar o nome do cliente na mensagem.
-- **Sql_agent**: Use este trabalhador para tarefas que envolvam:
-    - Coletar pagamentos atrasados ​​no banco de dados.
-    - Lidar com consultas que exigem análise de dados específicos, cálculos ou recuperação de bancos de dados SQL estruturados.
-- **Policy_agent**: Use este trabalhador para tarefas que envolvam:
-    - Consultar as políticas da empresa, como: do que se trata a empresa, como solicitar crédito, quais são os métodos de pagamento etc.
-
-Critérios de decisão:
-- **Messenger_agent** responder a perguntas simples que não envolvam as políticas da empresa ou contratos.
-- **Whatsapp_agent** apenas envia mensagens de texto no Whatsapp para cobrar o cliente das suas dívidas.
-- **Sql_agent** pega dados do banco de dados sobre os contratos.
-- **Policy_agent** responde apenas sobre as políticas da empresa.
-
-Se o **Policy_agent** precisar de alguma informação sobre contratos, roteie para **Sql_agent** para obter essas informações.
-Use o **Sql_agent** para buscar número de telefone e o nome do cliente quando o **Whatsapp_agent** tiver que mandar mensagem no Whatsapp.
-O **Whatsapp_agent** apenas vai ser chamado quando for necessário mandar mensagem para clientes no whatsapp a fim de cobrar as dívidas, o número de telefone deve ser buscado no banco de dados SQL e a mensagem deve conter o nome do cliente que também está no banco de dados SQL.
+    - Ler documentos.
+- **Data_agent**: Use este trabalhador para tarefas que envolvam:
+    - Interpretar documentos e salvá-los no banco de dados.
 """
 
 options = ["FINISH"] + members
 
-RouteResponseNextType = Union[Literal["FINISH"], Literal["Messenger_agent"],
-                              Literal["Policy_agent"], Literal["Sql_agent"], Literal["Whatsapp_agent"]]
+RouteResponseNextType = Union[Literal["FINISH"], Literal["Messenger_agent"], Literal["Data_agent"]]
 class RouteResponse(BaseModel):
     next: RouteResponseNextType
 
@@ -63,7 +44,7 @@ prompt = ChatPromptTemplate.from_messages(
     ]
 ).partial(options=str(options), members=", ".join(members))
 
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4o') # 'gpt-4.1-nano'
 
 def supervisor_agent(state):
     supervisor_chain = (

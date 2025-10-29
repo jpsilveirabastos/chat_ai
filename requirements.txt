@@ -1,2 +1,11 @@
-psycopg-binary==3.2.6
-psycopg-c==3.2.6
+langgraph==1.0.1
+pydantic==2.12.3
+fastapi==0.120.2
+langgraph-checkpoint-postgres==3.0.0
+psycopg-binary==3.2.12
+psycopg==3.2.12
+langchain-openai==1.0.1
+langchain-google-genai==3.0.0
+langchain-community==0.4.1
+PyMuPDF==1.26.5
+opencv-python==4.12.0.88
