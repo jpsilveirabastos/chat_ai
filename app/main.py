@@ -1,16 +1,22 @@
-from fastapi import Depends, Header, FastAPI, status, HTTPException, Form, Response
+from fastapi import Depends, Header, Form, Body, File, FastAPI, status, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-from fastapi import status, HTTPException, Header
-# from twilio.twiml.messaging_response import MessagingResponse
 from typing import Optional, Any, Dict
-import uuid
-import json
-import requests
-# from langchain_core.messages import HumanMessage
+import tempfile
+import shutil
+import os
+from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.postgres import PostgresSaver
 
-from .core.config import AUTH_KEY, DB_URI, TWILIO_SID, TWILIO_AUTH_TOKEN
-from .crud.langgraph import Graph
+from .core.config import AUTH_KEY, DB_URI
+from .crud.graph import Graph
+from .crud.tools import comprovante_renda_ocr, data_agent_tool
+from .crud.crm_data import get_file_data, save_ocr_data
+
+import logging
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -22,26 +28,110 @@ class AuthToken:
             raise HTTPException(status_code=401, detail="unauthorized")
  
         return x_api_key
+
+@app.post('/ocr_renda/', dependencies=[Depends(AuthToken())])
+async def ocr_renda(request: Dict[str, Any] = Body(...)):
+
+    content = get_file_data(request.get("file_id"))
     
-@app.post('/id_produtor/')
-def call_agents(input: str):
+    extracted_content = comprovante_renda_ocr.invoke({
+        "resp_file": content
+    })
 
-    input_text = input
+    result = save_ocr_data(extracted_content, request.get('deal_id'))
 
-    workflow = Graph().graph()
-    config = {"configurable": {'thread_id': '29-10-25-1'}, "recursion_limit": 3000}
+    return JSONResponse(content=extracted_content, status_code=status.HTTP_200_OK)
 
-    with PostgresSaver.from_conn_string(DB_URI) as checkpointer:
-        graph = workflow.compile(checkpointer=checkpointer)
-        input_data = {"messages": input_text}
-        # print(f"input: {input_data}")
-        resp = graph.invoke(input_data, config=config, stream_mode='values')
-        # print(resp)
-        resp_filt = resp['messages'][-1].content
-        # print(resp_filt)
+@app.post('/save_data/', dependencies=[Depends(AuthToken())])
+async def save_data(request: Dict[str, Any] = Body(...)):
 
-    return resp_filt
+    extracted_content = request.get('extracted_content')
+    
+    result = data_agent_tool.invoke({
+        "extracted_data": extracted_content
+    })
 
+    return JSONResponse(content=extracted_content, status_code=status.HTTP_200_OK)
+
+@app.post('/id_produtor/', dependencies=[Depends(AuthToken())])
+async def call_agents(
+    input: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+):
+    try:
+        session_id = 'aaunguinf nga aaaaaaaaaaaa'
+
+        print("\n" + "🚀" * 20)
+        print("🚀 NEW API REQUEST RECEIVED")
+        print(f"🚀 Input: {input}")
+        print(f"🚀 File: {file.filename if file else 'None'}")
+        print(f"🚀 Session ID: {session_id}")
+        print("🚀" * 20 + "\n")
+        
+        workflow = Graph().graph()
+        
+        config = {
+            "configurable": {
+                'thread_id': session_id
+            }, 
+            "recursion_limit": 50
+        }
+
+        # Handle file upload
+        temp_file_path = None
+        user_input = input or ""
+        
+        if file and file.filename:
+            # Save uploaded file to temporary location
+            temp_dir = tempfile.gettempdir()
+            temp_file_path = os.path.join(temp_dir, file.filename)
+            
+            with open(temp_file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            
+            # Add file path to user input
+            user_input = f"{user_input} [ARQUIVO: {temp_file_path}]" if user_input else f"[ARQUIVO: {temp_file_path}]"
+            print(f"📁 File saved to: {temp_file_path}")
+
+        with PostgresSaver.from_conn_string(DB_URI) as checkpointer:
+            graph = workflow.compile(checkpointer=checkpointer)
+            
+            input_data = {
+                "messages": [HumanMessage(content=user_input, name="Usuário")],
+                "next": "supervisor"
+            }
+            
+            print("🔄 Starting graph execution...")
+            final_state = None
+            for step in graph.stream(input_data, config=config, stream_mode='values'):
+                final_state = step
+                print("📦 Graph step completed")
+            
+            # Clean up temporary file
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+                print(f"🧹 Temporary file cleaned: {temp_file_path}")
+            
+            if final_state and 'messages' in final_state and final_state['messages']:
+                last_message = final_state['messages'][-1]
+                resp_filt = last_message.content if hasattr(last_message, 'content') else str(last_message)
+            else:
+                resp_filt = "Processamento concluído."
+
+            print(f"✅ FINAL RESPONSE: {resp_filt}")
+            print("🏁 Request processing completed\n")
+
+        return {"response": resp_filt, "session_id": session_id}
+
+    except Exception as e:
+        # Clean up on error
+        if 'temp_file_path' in locals() and temp_file_path and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        print(f"❌ ERROR: {e}")
+        logger.error(f"Error in agent processing: {e}")
+        raise
+        # raise HTTPException(status_code=500, detail=f"Erro no processamento: {str(e)}")
+    
 # @app.post('/query/')
 # def call_graph(
 #     From: str = Form(...),

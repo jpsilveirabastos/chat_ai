@@ -1,9 +1,9 @@
 from langchain_community.utilities import SQLDatabase
-from .config import DBNAME_PG, HOST_PG, USER_PG, PASSWORD_PG
+from .config import DB_URI
 
 class PgConnection:
 
     def connect():
-        db = SQLDatabase.from_uri(f'postgresql://{USER_PG}:{PASSWORD_PG}@{HOST_PG}:5432/{DBNAME_PG}')
+        db = SQLDatabase.from_uri(DB_URI)
         return db
 

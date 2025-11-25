@@ -3,36 +3,34 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from typing import Union, Literal
 from pydantic import BaseModel
-
-from typing import Literal
+from typing import Literal, Dict, Any
 
 from langchain_openai import ChatOpenAI
 
-members = ["Messenger_agent", "Data_agent"]
+members = ["Messenger_agent"]
 
 system_prompt = """Você é um supervisor da empresa Nagro e sua tarefa é decidir quem vai ser o próximo agente a agir.
-Existem os agentes: 'Messenger_agent' e 'Data_agent'.
-O 'Messenger_agent' tem a função de comunicar com o usuário e ler os documentos que este enviar, enquanto o 'Data_agent' tem a função de interpretar os dados e salvá-los no banco de dados.
-O 'Data_agent' vai ser chamado APENAS quando há documentos enviados pelo usuário, caso contrário não é necessário chamar ele.
-Se o 'Data_agent' não tiver a necessidade de ser chamado, use somente o 'Messenger_agent' para responder o usuário.
-Sempre que o usuário enviar arquivos de documentos, o 'Messenger_agent' lê o documento e repassa as informações para VOCê, e depois você repassa para o 'Data_agent'. Depois o 'Messenger_agent' responde o usuário.
-Assim que gerar alguma resposta para o usuário, finalize com 'FINISH' para enviar a resposta ao usuário e assim começar a próxima interação.
+Existem os agentes: 'Messenger_agent'.
+O 'Messenger_agent' tem a função de comunicar com o usuário e ler os documentos que este enviar, interpretar os dados e salvá-los no banco de dados.
+Analise as mensagens anteriores, se o usuário enviou uma mensagem e o Messenger_agent respondeu, finalize com 'FINISH', NÃO RETORNE 'Messenger_agent' MAIS DO QUE UMA VEZ CONSECUTIVA.
+Assim que gerar alguma resposta, finalize com 'FINISH' para enviá-la ao usuário e assim começar a próxima iteração.
 
 - **Messenger_agent**: Use este trabalhador para tarefas que envolvam:
     - Interagir com o usuário, passando pelas perguntas necessárias conforme o histórico da conversa.
     - Responder a perguntas simples, como: saudações e informações básicas.
     - Ler documentos.
-- **Data_agent**: Use este trabalhador para tarefas que envolvam:
-    - Interpretar documentos e salvá-los no banco de dados.
+
+P.S.1: Se o Messenger_agent respondeu à pergunta, finalize com 'FINISH' para que a resposta seja enviada ao usuário. NÃO RETORNE 'Messenger_agent' MAIS DO QUE UMA VEZ CONSECUTIVA.
+P.S.2: Analise a última mensagem, quando o "Usuário" for o último que enviou a mensagem, SEMPRE repasse para algum agente.
 """
 
 options = ["FINISH"] + members
 
-RouteResponseNextType = Union[Literal["FINISH"], Literal["Messenger_agent"], Literal["Data_agent"]]
+RouteResponseNextType = Union[Literal["FINISH"], Literal["Messenger_agent"]]
 class RouteResponse(BaseModel):
     next: RouteResponseNextType
 
-prompt = ChatPromptTemplate.from_messages(
+PROMPT = ChatPromptTemplate.from_messages(
     [
         ("system", system_prompt),
         MessagesPlaceholder(variable_name="messages"),
@@ -48,7 +46,7 @@ llm = ChatOpenAI(model='gpt-4o') # 'gpt-4.1-nano'
 
 def supervisor_agent(state):
     supervisor_chain = (
-        prompt
+        PROMPT
         | llm.with_structured_output(RouteResponse)
     )
     return supervisor_chain.invoke(state)
